@@ -1,0 +1,20 @@
+- name: PI USB stick play
+  hosts: pi_usb_stick
+  tasks:
+    - name: Modify config.txt
+      ansible.builtin.lineinfile:
+        path: /boot/config.txt
+        insertafter: '^\[all\]$'
+        line: dtoverlay=dwc2, dr_mode=peripheral
+      become: true
+
+    - name: Create a backing storage file
+      become: true
+      community.general.filesize:
+        path: /home/pi/backing-store
+        blocksize: 1M
+        size: 4G
+
+    - name: Partition the backing storage file
+      become: true
+      shell: /bin/echo -e "x\ns\n8\nh\n255\nc\n\nr\nn\n1\n\n\nw\n" | sudo fdisk /home/pi/backing-store
