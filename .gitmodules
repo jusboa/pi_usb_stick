@@ -1,0 +1,3 @@
+[submodule "fix-ssh-on-pi-wifi-nm"]
+	path = fix-ssh-on-pi-wifi-nm
+	url = git@github.com:jusboa/fix-ssh-on-pi-wifi-nm.git

@@ -1,0 +1,25 @@
+[connection]
+id=Vuuu_wifi
+# uuidgen <device>, e.g. uuidgen wlan0
+uuid=731c994b-f030-43c9-b065-a6974f94d2f6
+type=wifi
+interface-name=wlan0
+autoconnect=true
+
+[wifi]
+mode=infrastructure
+ssid=Vuuu
+
+[wifi-security]
+key-mgmt=wpa-psk
+# Hash the passphrase with: wpa_passphrase <ssid> <passphrase
+psk=fbb44364c635f955f91696d7c143a1ab6b0b75744d41a9bfb79f9865076c8b5d
+
+[ipv4]
+method=auto
+
+[ipv6]
+addr-gen-mode=default
+method=auto
+
+[proxy]
