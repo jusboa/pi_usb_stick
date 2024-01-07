@@ -9,12 +9,73 @@
       become: true
 
     - name: Create a backing storage file
+      # TODO: make backing store path a variable
+      # TODO: make username a variable
       become: true
       community.general.filesize:
         path: /home/pi/backing-store
         blocksize: 1M
         size: 4G
 
-    - name: Partition the backing storage file
+    - name: Create partitions for backing storage file
       become: true
-      shell: /bin/echo -e "x\ns\n8\nh\n255\nc\n\nr\nn\n1\n\n\nw\n" | sudo fdisk /home/pi/backing-store
+      ansible.builtin.shell: /bin/echo -e "x\ns\n8\nh\n255\nc\n1028\nr\nn\np\n1\n\n\nt\n0c\nw\n" | sudo fdisk /home/pi/backing-store
+
+    - name: Extract sector size
+      become: true
+      ansible.builtin.shell: fdisk -lu /home/pi/backing-store
+      register: fdisk_list_results
+    - ansible.builtin.set_fact:
+        sector_size_bytes: "{{ fdisk_list_results.stdout | ansible.builtin.regex_search(regexp, '\\1') | first }}"
+      vars:
+        regexp: 'Units: sectors.*= ([0-9]+) bytes'
+    - ansible.builtin.debug:
+        var: sector_size_bytes
+
+    - name: Extract starting sector
+      become: true
+      ansible.builtin.shell: fdisk -lo Start /home/pi/backing-store
+      register: fdisk_list_results
+    - ansible.builtin.set_fact:
+        starting_sector: "{{ fdisk_list_results.stdout | ansible.builtin.regex_search(regexp, '\\1') | first }}"
+      vars:
+        regexp: 'Start\n ([0-9]+)$'
+    - ansible.builtin.debug:
+        var: starting_sector
+
+    - name: Remove mass storage module
+      become: true
+      community.general.modprobe:
+        name: g_mass_storage
+        params: -r
+
+    - name: Set backing storage file as a loop device
+      become: true
+      ansible.builtin.shell: losetup -o "{{ loop_device_offset }}" /dev/loop0 /home/pi/backing-store
+      vars:
+        loop_device_offset: "{{ starting_sector | int * sector_size_bytes | int}}"
+    - ansible.builtin.debug:
+        msg: "losetup offset: {{ starting_sector | int * sector_size_bytes | int}}"
+
+    - name: Create FAT file system
+      become: true
+      community.general.filesystem:
+        dev: /dev/loop0
+        fstype: vfat
+
+    - name: Remove loop device
+      become: true
+      ansible.builtin.shell: losetup -d /dev/loop0
+
+    - name: Load g_mass_storage module on power up
+      become: true
+      ansible.builtin.cron:
+        name: "Load USB mass storage gadget on reboot"
+        special_time: reboot
+        job: "/sbin/modprobe g_mass_storage file=/home/pi/backing-store"
+
+    - name: Reboot
+      become: true
+      ansible.builtin.reboot:
+        msg: "Rebooting machine in 5 seconds"
+
