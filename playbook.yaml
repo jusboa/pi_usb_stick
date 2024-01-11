@@ -21,22 +21,27 @@
       become: true
       ansible.builtin.shell: /bin/echo -e "x\ns\n8\nh\n255\nc\n1028\nr\nn\np\n1\n\n\nt\n0c\nw\n" | sudo fdisk /home/pi/backing-store
 
-    - name: Extract sector size
+    - name: List backing storage with fdisk
       become: true
       ansible.builtin.shell: fdisk -lu /home/pi/backing-store
       register: fdisk_list_results
-    - ansible.builtin.set_fact:
+
+    - name: Extract sector size
+      ansible.builtin.set_fact:
         sector_size_bytes: "{{ fdisk_list_results.stdout | ansible.builtin.regex_search(regexp, '\\1') | first }}"
       vars:
         regexp: 'Units: sectors.*= ([0-9]+) bytes'
+
     - ansible.builtin.debug:
         var: sector_size_bytes
 
-    - name: Extract starting sector
+    - name: List start sector with fdisk
       become: true
       ansible.builtin.shell: fdisk -lo Start /home/pi/backing-store
       register: fdisk_list_results
-    - ansible.builtin.set_fact:
+
+    - name: Extract starting sector
+      ansible.builtin.set_fact:
         starting_sector: "{{ fdisk_list_results.stdout | ansible.builtin.regex_search(regexp, '\\1') | first }}"
       vars:
         regexp: 'Start\n ([0-9]+)$'
@@ -48,6 +53,16 @@
       community.general.modprobe:
         name: g_mass_storage
         params: -r
+
+    - name: Check if loop device exists
+      ansible.builtin.stat:
+        path: /dev/loop0
+      register: loop0_status
+
+    - name: Remove loop device if it exists
+      become: true
+      ansible.builtin.shell: losetup -d /dev/loop0
+      when: loop0_status.stat.isdir is defined and loop0_status.stat.isdir
 
     - name: Set backing storage file as a loop device
       become: true
@@ -74,8 +89,16 @@
         special_time: reboot
         job: "/sbin/modprobe g_mass_storage file=/home/pi/backing-store"
 
+    - name: Create a mount point folder for a mass storage loop device
+      become: true
+      ansible.builtin.file:
+        path: /mnt/mass_storage
+        state: directory
+        owner: pi
+        group: pi
+        mode: u=rwx,g=rwx,o=
+
     - name: Reboot
       become: true
       ansible.builtin.reboot:
         msg: "Rebooting machine in 5 seconds"
-
