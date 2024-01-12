@@ -1,5 +1,14 @@
 - name: PI USB stick play
   hosts: pi_usb_stick
+  vars:
+    storage_file: /home/pi/backing-store
+    loop_device: /dev/loop0
+    username: pi
+    group: pi
+    mount_point: /mnt/mass_storage
+    from_pi_script: from_pi.sh
+    from_host_script: from_host.sh
+
   tasks:
     - name: Modify config.txt
       ansible.builtin.lineinfile:
@@ -8,95 +17,121 @@
         line: dtoverlay=dwc2, dr_mode=peripheral
       become: true
 
-    - name: Create a backing storage file
-      # TODO: make backing store path a variable
-      # TODO: make username a variable
-      become: true
-      community.general.filesize:
-        path: /home/pi/backing-store
-        blocksize: 1M
-        size: 4G
-
-    - name: Create partitions for backing storage file
-      become: true
-      ansible.builtin.shell: /bin/echo -e "x\ns\n8\nh\n255\nc\n1028\nr\nn\np\n1\n\n\nt\n0c\nw\n" | sudo fdisk /home/pi/backing-store
-
-    - name: List backing storage with fdisk
-      become: true
-      ansible.builtin.shell: fdisk -lu /home/pi/backing-store
-      register: fdisk_list_results
-
-    - name: Extract sector size
-      ansible.builtin.set_fact:
-        sector_size_bytes: "{{ fdisk_list_results.stdout | ansible.builtin.regex_search(regexp, '\\1') | first }}"
-      vars:
-        regexp: 'Units: sectors.*= ([0-9]+) bytes'
+    - name: Check if kernel module is loaded
+      ansible.builtin.shell: lsmod | smod | sed -n -r "s/.*(g_mass_storage).*/&\\1/p"
+      register: is_module_loaded
 
     - ansible.builtin.debug:
-        var: sector_size_bytes
-
-    - name: List start sector with fdisk
-      become: true
-      ansible.builtin.shell: fdisk -lo Start /home/pi/backing-store
-      register: fdisk_list_results
-
-    - name: Extract starting sector
-      ansible.builtin.set_fact:
-        starting_sector: "{{ fdisk_list_results.stdout | ansible.builtin.regex_search(regexp, '\\1') | first }}"
-      vars:
-        regexp: 'Start\n ([0-9]+)$'
-    - ansible.builtin.debug:
-        var: starting_sector
+        var: is_module_loaded.stdout
 
     - name: Remove mass storage module
       become: true
       community.general.modprobe:
         name: g_mass_storage
         params: -r
+      when: is_module_loaded.stdout | length > 0
 
-    - name: Check if loop device exists
-      ansible.builtin.stat:
-        path: /dev/loop0
-      register: loop0_status
+    - name: Check if mounted
+      ansible.builtin.shell: mountpoint -q "{{ mount_point }}"
+      ignore_errors: true
+      register: is_mounted
 
-    - name: Remove loop device if it exists
+    - name: Umount
       become: true
-      ansible.builtin.shell: losetup -d /dev/loop0
-      when: loop0_status.stat.isdir is defined and loop0_status.stat.isdir
+      ansible.builtin.shell: umount --lazy "{{ mount_point }}"
+      when: is_mounted.rc == 0
+
+    - name: Check if loop device is attached
+      become: true
+      ansible.builtin.shell: losetup --associated "{{ storage_file }}"
+      register: is_loop_attached
+
+    - ansible.builtin.debug:
+        var: is_loop_attached.stdout
+
+    - name: Detach loop device if attached
+      become: true
+      ansible.builtin.shell: losetup -d "{{ loop_device }}"
+      when: is_loop_attached.stdout | length > 0
+
+    - name: Create a backing storage file
+      become: true
+      community.general.filesize:
+        path: "{{ storage_file }}"
+        blocksize: 1M
+        size: 4G
+
+    - name: Create partitions for backing storage file
+      become: true
+      ansible.builtin.shell: /bin/echo -e "x\ns\n8\nh\n255\nc\n1028\nr\nn\np\n1\n\n\nt\n0c\nw\n" | sudo fdisk "{{ storage_file }}"
+
+    - name: Get sector size in bytes
+      become: true
+      ansible.builtin.shell: "fdisk -lu {{ storage_file }} | sed -n -r 's/Units: sectors.*= ([0-9]+) bytes/\\1/p'"
+      register: sector_size_bytes
+
+    - ansible.builtin.debug:
+        var: sector_size_bytes.stdout
+
+    - name: Get starting sector
+      become: true
+      ansible.builtin.shell: "fdisk -lo Start {{ storage_file }} | sed -n -r '$ s/^ ([0-9]+)$/\\1/p'"
+      register: starting_sector
+
+    - ansible.builtin.debug:
+        var: starting_sector.stdout
 
     - name: Set backing storage file as a loop device
       become: true
-      ansible.builtin.shell: losetup -o "{{ loop_device_offset }}" /dev/loop0 /home/pi/backing-store
+      ansible.builtin.shell: "losetup -o {{ loop_device_offset }} {{ loop_device }} {{ storage_file }}"
       vars:
-        loop_device_offset: "{{ starting_sector | int * sector_size_bytes | int}}"
+        loop_device_offset: "{{ starting_sector.stdout | int * sector_size_bytes.stdout | int}}"
     - ansible.builtin.debug:
-        msg: "losetup offset: {{ starting_sector | int * sector_size_bytes | int}}"
+        msg: "losetup offset: {{ starting_sector.stdout | int * sector_size_bytes.stdout | int}}"
 
     - name: Create FAT file system
       become: true
       community.general.filesystem:
-        dev: /dev/loop0
+        dev: "{{ loop_device }}"
         fstype: vfat
 
     - name: Remove loop device
       become: true
-      ansible.builtin.shell: losetup -d /dev/loop0
+      ansible.builtin.shell: losetup -d "{{ loop_device }}"
 
     - name: Load g_mass_storage module on power up
       become: true
       ansible.builtin.cron:
         name: "Load USB mass storage gadget on reboot"
         special_time: reboot
-        job: "/sbin/modprobe g_mass_storage file=/home/pi/backing-store"
+        job: "/sbin/modprobe g_mass_storage file={{ storage_file }}"
 
     - name: Create a mount point folder for a mass storage loop device
       become: true
       ansible.builtin.file:
-        path: /mnt/mass_storage
+        path: "{{ mount_point }}"
         state: directory
-        owner: pi
-        group: pi
+        owner: "{{ username }}"
+        group: "{{ group }}"
         mode: u=rwx,g=rwx,o=
+
+    - name: Copy script to access mass storage within PI
+      become: true
+      ansible.builtin.copy:
+        src: "{{ from_pi_script }}"
+        dest: /opt
+        owner: "{{ username }}"
+        group: "{{ group }}"
+        mode: u+rwx,g+rwx,o-rwx
+
+    - name: Copy script to access mass storage from host
+      become: true
+      ansible.builtin.copy:
+        src: "{{ from_host_script }}"
+        dest: /opt
+        owner: "{{ username }}"
+        group: "{{ group }}"
+        mode: u+rwx,g+rwx,o-rwx
 
     - name: Reboot
       become: true
