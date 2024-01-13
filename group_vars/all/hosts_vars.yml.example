@@ -1,0 +1,10 @@
+# Raspberry pi
+pi_ip: 192.168.100.99
+pi_username: terminator
+pi_group: terminator_group
+
+# wifi/nfs host computer
+wifi_host_ip: localhost
+wifi_host_username: peter_pan
+wifi_host_group: peter_pan_group
+wifi_host_password: Pssst_ThisIsASecret

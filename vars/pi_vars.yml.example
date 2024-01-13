@@ -1,0 +1,4 @@
+nfs_client: 192.168.100.0/24
+backing_storage: /home/terminator/backing-store
+ansible_ssh_private_key_file: /home/peter_pan/.ssh/id_ed25519
+loop_device: /dev/loop0

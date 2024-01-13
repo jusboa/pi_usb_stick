@@ -1,14 +1,45 @@
+- name: WIFI host play
+  hosts: wifi_host
+  vars_files:
+    - vars/wifi_host_vars.yml
+  tasks:
+  - name: Install NFS utils
+    become: true
+    ansible.builtin.apt:
+      name: nfs-common
+
+  - name: Copy script to mount PI NFS from wifi host
+    become: true
+    ansible.builtin.template:
+      src: mount_pi_nfs.sh.j2
+      dest: /opt/mount_pi_nfs.sh
+      owner: "{{ wifi_host_username }}"
+      group: "{{ wifi_host_group }}"
+      mode: u+rwx,g+rwx,o-rwx
+
+  - name: Create NFS mount point folder
+    become: true
+    ansible.builtin.file:
+      path: "{{ nfs_mount_point }}"
+      state: directory
+      owner: "{{ wifi_host_username }}"
+      group: "{{ wifi_host_group }}"
+      mode: u=rwx,g=rwx,o=
+
+  - name: Check if nfs is mounted
+    ansible.builtin.shell: mountpoint -q "{{ nfs_mount_point }}"
+    ignore_errors: true
+    register: is_mounted
+
+  - name: Umount
+    become: true
+    ansible.builtin.shell: umount --lazy "{{ nfs_mount_point }}"
+    when: is_mounted.rc == 0
+
 - name: PI USB stick play
   hosts: pi_usb_stick
-  vars:
-    storage_file: /home/pi/backing-store
-    loop_device: /dev/loop0
-    username: pi
-    group: pi
-    mount_point: /mnt/mass_storage
-    from_pi_script: from_pi.sh
-    from_host_script: from_host.sh
-
+  vars_files:
+    - vars/pi_vars.yml
   tasks:
     - name: Modify config.txt
       ansible.builtin.lineinfile:
@@ -43,7 +74,7 @@
 
     - name: Check if loop device is attached
       become: true
-      ansible.builtin.shell: losetup --associated "{{ storage_file }}"
+      ansible.builtin.shell: losetup --associated "{{ backing_storage }}"
       register: is_loop_attached
 
     - ansible.builtin.debug:
@@ -57,17 +88,17 @@
     - name: Create a backing storage file
       become: true
       community.general.filesize:
-        path: "{{ storage_file }}"
+        path: "{{ backing_storage }}"
         blocksize: 1M
         size: 4G
 
     - name: Create partitions for backing storage file
       become: true
-      ansible.builtin.shell: /bin/echo -e "x\ns\n8\nh\n255\nc\n1028\nr\nn\np\n1\n\n\nt\n0c\nw\n" | sudo fdisk "{{ storage_file }}"
+      ansible.builtin.shell: /bin/echo -e "x\ns\n8\nh\n255\nc\n1028\nr\nn\np\n1\n\n\nt\n0c\nw\n" | sudo fdisk "{{ backing_storage }}"
 
     - name: Get sector size in bytes
       become: true
-      ansible.builtin.shell: "fdisk -lu {{ storage_file }} | sed -n -r 's/Units: sectors.*= ([0-9]+) bytes/\\1/p'"
+      ansible.builtin.shell: "fdisk -lu {{ backing_storage }} | sed -n -r 's/Units: sectors.*= ([0-9]+) bytes/\\1/p'"
       register: sector_size_bytes
 
     - ansible.builtin.debug:
@@ -75,7 +106,7 @@
 
     - name: Get starting sector
       become: true
-      ansible.builtin.shell: "fdisk -lo Start {{ storage_file }} | sed -n -r '$ s/^ ([0-9]+)$/\\1/p'"
+      ansible.builtin.shell: "fdisk -lo Start {{ backing_storage }} | sed -n -r '$ s/^ ([0-9]+)$/\\1/p'"
       register: starting_sector
 
     - ansible.builtin.debug:
@@ -83,7 +114,7 @@
 
     - name: Set backing storage file as a loop device
       become: true
-      ansible.builtin.shell: "losetup -o {{ loop_device_offset }} {{ loop_device }} {{ storage_file }}"
+      ansible.builtin.shell: "losetup -o {{ loop_device_offset }} {{ loop_device }} {{ backing_storage }}"
       vars:
         loop_device_offset: "{{ starting_sector.stdout | int * sector_size_bytes.stdout | int}}"
     - ansible.builtin.debug:
@@ -104,36 +135,50 @@
       ansible.builtin.cron:
         name: "Load USB mass storage gadget on reboot"
         special_time: reboot
-        job: "/sbin/modprobe g_mass_storage file={{ storage_file }}"
+        job: "/sbin/modprobe g_mass_storage file={{ backing_storage }}"
 
     - name: Create a mount point folder for a mass storage loop device
       become: true
       ansible.builtin.file:
         path: "{{ mount_point }}"
         state: directory
-        owner: "{{ username }}"
-        group: "{{ group }}"
+        owner: "{{ pi_username }}"
+        group: "{{ pi_group }}"
         mode: u=rwx,g=rwx,o=
 
     - name: Copy script to access mass storage within PI
       become: true
-      ansible.builtin.copy:
-        src: "{{ from_pi_script }}"
-        dest: /opt
-        owner: "{{ username }}"
-        group: "{{ group }}"
+      ansible.builtin.template:
+        src: from_pi.sh.j2
+        dest: /opt/from_pi.sh
+        owner: "{{ pi_username }}"
+        group: "{{ pi_group }}"
         mode: u+rwx,g+rwx,o-rwx
 
     - name: Copy script to access mass storage from host
       become: true
-      ansible.builtin.copy:
-        src: "{{ from_host_script }}"
-        dest: /opt
-        owner: "{{ username }}"
-        group: "{{ group }}"
+      ansible.builtin.template:
+        src: from_host.sh.j2
+        dest: /opt/from_host.sh
+        owner: "{{ pi_username }}"
+        group: "{{ pi_group }}"
         mode: u+rwx,g+rwx,o-rwx
+
+    - name: Install NFS server
+      become: true
+      ansible.builtin.apt:
+        name: nfs-kernel-server
+
+    - name: Get user id
+      ansible.builtin.shell: id --user "{{ pi_username }}"
+      register: user_id
+
+    - name: Get group id
+      ansible.builtin.shell: id --group "{{ pi_group }}"
+      register: group_id
 
     - name: Reboot
       become: true
       ansible.builtin.reboot:
         msg: "Rebooting machine in 5 seconds"
+

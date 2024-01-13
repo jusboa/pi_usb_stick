@@ -1,0 +1,22 @@
+#!/bin/bash
+
+if [ $(pwd) == {{mount_point}} ]; then
+    cd ..
+fi
+
+umount --quiet --detach-loop {{mount_point}}
+
+modprobe -r g_mass_storage
+
+SECTOR_SIZE_BYTES=$(fdisk -lu {{backing_storage}} | sed -n -r "s/Units: sectors.*= ([0-9]+) bytes/\1/p")
+STARTING_SECTOR=$(fdisk -lo Start {{backing_storage}} | sed -n -r "s/^ ([0-9]+)$/\1/p")
+OFFSET=$((${SECTOR_SIZE_BYTES} * ${STARTING_SECTOR}))
+
+losetup -o ${OFFSET} {{loop_device}} {{backing_storage}}
+mount -t vfat {{loop_device}} {{mount_point}} -o uid=pi -o gid=pi
+
+# Share mount point via NFS
+exportfs -u {{nfs_client}}:{{mount_point}}
+exportfs -o rw,all_squash,insecure,async,no_subtree_check,anonuid=$(id --user {{pi_username}}),anongid=$(id --group {{pi_group}}) {{nfs_client}}:{{mount_point}}
+
+

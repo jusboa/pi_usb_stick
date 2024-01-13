@@ -1,0 +1,4 @@
+#!/bin/bash
+
+umount --quiet {{nfs_mount_point}}
+mount -t nfs {{pi_ip}}:{{mount_point}} {{nfs_mount_point}}

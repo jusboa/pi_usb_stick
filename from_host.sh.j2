@@ -1,0 +1,6 @@
+#!/bin/bash
+
+exportfs -u {{nfs_client}}:{{mount_point}}
+umount --quiet --detach-loop {{mount_point}}
+
+sudo modprobe g_mass_storage file={{backing_storage}}
