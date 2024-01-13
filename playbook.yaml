@@ -17,6 +17,15 @@
       group: "{{ wifi_host_group }}"
       mode: u+rwx,g+rwx,o-rwx
 
+  - name: Copy script to umount PI NFS from wifi host
+    become: true
+    ansible.builtin.template:
+      src: umount_pi_nfs.sh.j2
+      dest: /opt/umount_pi_nfs.sh
+      owner: "{{ wifi_host_username }}"
+      group: "{{ wifi_host_group }}"
+      mode: u+rwx,g+rwx,o-rwx
+
   - name: Create NFS mount point folder
     become: true
     ansible.builtin.file:

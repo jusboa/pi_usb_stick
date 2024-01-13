@@ -3,6 +3,7 @@ ungrouped:
     pi_usb_stick:
       ansible_host: "{{ pi_ip }}"
       ansible_user: "{{ pi_username }}"
+      ansible_ssh_private_key_file: "{{ pi_ssh_private_key_file }}"
 
     wifi_host:
       ansible_host: "{{ wifi_host_ip }}"

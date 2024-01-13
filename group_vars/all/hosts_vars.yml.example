@@ -2,6 +2,7 @@
 pi_ip: 192.168.100.99
 pi_username: terminator
 pi_group: terminator_group
+pi_ssh_private_key_file: /home/peter_pan/.ssh/id_ed25519
 
 # wifi/nfs host computer
 wifi_host_ip: localhost

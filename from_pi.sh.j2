@@ -13,7 +13,7 @@ STARTING_SECTOR=$(fdisk -lo Start {{backing_storage}} | sed -n -r "s/^ ([0-9]+)$
 OFFSET=$((${SECTOR_SIZE_BYTES} * ${STARTING_SECTOR}))
 
 losetup -o ${OFFSET} {{loop_device}} {{backing_storage}}
-mount -t vfat {{loop_device}} {{mount_point}} -o uid=pi -o gid=pi
+mount -t vfat {{loop_device}} {{mount_point}} -o uid={{pi_username}} -o gid={{pi_group}}
 
 # Share mount point via NFS
 exportfs -u {{nfs_client}}:{{mount_point}}

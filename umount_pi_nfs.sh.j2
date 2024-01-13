@@ -1,0 +1,4 @@
+#!/bin/bash
+
+umount --quiet {{nfs_mount_point}}
+ssh -i {{ pi_ssh_private_key_file }} {{ pi_username }}@{{ pi_ip }} sudo /opt/from_host.sh
